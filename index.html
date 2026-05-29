@@ -2691,6 +2691,129 @@ function renderAll() {
 
 
 
+
+function renderWatchlist() {
+  const el = document.getElementById('watchlist');
+  if (!state.watchlist.length) {
+    el.innerHTML = '<div class="empty">Add a stock ticker above.</div>';
+    return;
+  }
+  el.innerHTML = state.watchlist.map(sym => {
+    const p = prices[sym];
+    const m = sym.endsWith('.AX') ? 'ASX' : 'US';
+    return `<div class="ticker-row${selected===sym?' selected':''}" data-select="${sym}">
+      <div>
+        <div class="ticker-symbol">${sym}</div>
+        <div class="ticker-market">${m}</div>
+      </div>
+      <div>
+        <div class="ticker-price">${p?.price != null ? money(p.price) : '…'}</div>
+        <div class="ticker-change ${cls(p?.changePct)}">${pct(p?.changePct, true)}</div>
+      </div>
+      <button class="ticker-remove" data-remove="${sym}" title="remove">×</button>
+    </div>`;
+  }).join('');
+}
+
+function renderDetail() {
+  const empty = document.getElementById('detail-empty');
+  const view = document.getElementById('detail-view');
+  if (!selected) {
+    empty.style.display = 'flex';
+    view.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  view.style.display = 'block';
+  const p = prices[selected];
+  document.getElementById('d-symbol').textContent = selected;
+  document.getElementById('d-name').textContent = p?.name || '—';
+  document.getElementById('d-price').textContent = p?.price != null ? money(p.price) : '—';
+  const ch = document.getElementById('d-change');
+  ch.textContent = p?.change != null ? money(p.change, true) + ' (' + pct(p.changePct, true) + ')' : '—';
+  ch.className = 'detail-change ' + cls(p?.change);
+  document.getElementById('cash-display').textContent = money(state.cash);
+  const pos = state.positions[selected];
+  document.getElementById('pos-display').textContent = pos
+    ? pos.shares.toFixed(4).replace(/\.?0+$/,'') + 'sh @ ' + money(pos.avgCost)
+    : 'none';
+}
+
+function renderPortfolioSummary() {
+  const tv = totalValue(), ret = totalReturn(), rp = totalReturnPct();
+  document.getElementById('port-total').textContent = money(tv);
+  const ch = document.getElementById('port-change');
+  ch.textContent = money(ret, true) + ' (' + pct(rp, true) + ') all-time';
+  ch.className = 'summary-change ' + cls(ret);
+  document.getElementById('port-cash').textContent = money(state.cash);
+  document.getElementById('port-holdings').textContent = money(holdingsValue());
+}
+
+function renderPositions() {
+  const el = document.getElementById('tab-positions');
+  const entries = Object.entries(state.positions);
+  if (!entries.length) { el.innerHTML = '<div class="empty">No positions yet.</div>'; return; }
+  el.innerHTML = entries.map(([sym, pos]) => {
+    const px = prices[sym]?.price;
+    const mkt = px != null ? px * pos.shares : null;
+    const cost = pos.avgCost * pos.shares;
+    const pl = mkt != null ? mkt - cost : null;
+    const plp = mkt != null ? (mkt - cost) / cost * 100 : null;
+    return `<div class="position-row" data-select="${sym}">
+      <div class="position-header">
+        <span class="position-symbol">${sym}</span>
+        <span class="position-shares">${pos.shares.toFixed(4).replace(/\.?0+$/,'')} sh</span>
+      </div>
+      <div class="prow"><span>Avg cost</span><span class="val">${money(pos.avgCost)}</span></div>
+      <div class="prow"><span>Mark</span><span class="val">${px != null ? money(px) : '—'}</span></div>
+      <div class="prow"><span>Value</span><span class="val">${mkt != null ? money(mkt) : '—'}</span></div>
+      <div class="prow"><span>P/L</span><span class="val ${pl!=null?cls(pl):''}">${pl != null ? money(pl, true) + ' (' + pct(plp, true) + ')' : '—'}</span></div>
+    </div>`;
+  }).join('');
+}
+
+function renderTrades() {
+  const el = document.getElementById('tab-trades');
+  if (!state.trades.length) { el.innerHTML = '<div class="empty">No trades yet.</div>'; return; }
+  el.innerHTML = state.trades.slice(0, 60).map(t => `<div class="trade-row">
+    <span class="trade-action ${t.source==='CAS'?'CAS':t.action}">${t.source==='BOT'?'🤖':t.source==='CAS'?'⚡':''} ${t.action}</span>
+    <div>
+      <div><strong>${t.symbol}</strong> · ${t.qty.toFixed(4).replace(/\.?0+$/,'')} @ ${money(t.price)}</div>
+      <div class="trade-time">${dtStr(t.ts)}</div>
+    </div>
+    <div style="text-align:right">${money(t.total)}</div>
+  </div>`).join('');
+}
+
+function renderBotLogTab() {
+  const el = document.getElementById('tab-botlog');
+  if (!state.botLog.length) { el.innerHTML = '<div class="empty">Bot has not run yet.</div>'; return; }
+  el.innerHTML = state.botLog.slice(0, 80).map(e => `<div class="bot-log-entry ${e.type}">
+    <div>${e.symbol ? '<strong>' + e.symbol + '</strong> · ' : ''}${e.reason}</div>
+    <div class="bot-log-time">${tStr(e.ts)}${e.price ? ' · ' + money(e.price) : ''}</div>
+  </div>`).join('');
+}
+
+function renderRealityCheck() {
+  const myPct = totalReturnPct(), spyPct = spyReturnPct(), days = daysActive(), trades = state.trades.length;
+  let text;
+  if (!trades) text = 'No trades yet. Toggle the bot on. This tracks whether you beat buying and holding the S&P 500.';
+  else if (spyPct == null) text = trades + ' trades over ' + days + 'd. Portfolio: ' + pct(myPct, true);
+  else {
+    const diff = myPct - spyPct;
+    if (diff > 0) text = `Beating SPY by ${diff.toFixed(2)} pts (${pct(myPct,true)} vs ${pct(spyPct,true)}). Under 30 days = mostly noise. Keep running.`;
+    else text = `SPY ahead by ${Math.abs(diff).toFixed(2)} pts (you ${pct(myPct,true)} vs ${pct(spyPct,true)}). Common result. Try different settings.`;
+  }
+  document.getElementById('reality-text').textContent = text;
+  document.getElementById('reality-stats').innerHTML = `
+    <div class="row"><span class="label">Days</span><span>${days}</span></div>
+    <div class="row"><span class="label">Trades</span><span>${trades}</span></div>
+    <div class="row"><span class="label">You</span><span class="${cls(myPct)}">${pct(myPct,true)}</span></div>
+    <div class="row"><span class="label">SPY</span><span class="${spyPct!=null?cls(spyPct):''}">${pct(spyPct,true)}</span></div>
+    <div class="row"><span class="label">Alpha</span><span class="${spyPct!=null?cls(myPct-spyPct):''}">${spyPct!=null?pct(myPct-spyPct,true):'—'}</span></div>
+  `;
+}
+
 let macroDataCache = null;
 async function loadMacroData() {
   macroDataCache = await fetchMacroData();
@@ -3238,7 +3361,7 @@ async function runBacktestFull() {
   setProg(100, 'Done!');
   setTimeout(() => {
     renderBtResults(result);
-    document.getElementById('bt-bar-meta').innerHTML = `Last: <strong class="${cls(totalReturn)}">${pct(totalReturn,true)}</strong> over ${btPeriod} · ${trades.length} trades · Sharpe ${sharpe!=null?sharpe.toFixed(2):'—'}`;
+    document.getElementById('bt-bar-meta').innerHTML = `Last: <strong class="${cls(result.totalReturn)}">${pct(result.totalReturn,true)}</strong> over ${btPeriod} · ${result.trades.length} trades · Sharpe ${result.sharpe!=null?result.sharpe.toFixed(2):'—'}`;
     wrap.style.display = 'none';
     btn.disabled = false; btn.textContent = '▶ Run Backtest';
   }, 300);
